@@ -9,6 +9,7 @@ from pathlib import Path
 from time import perf_counter
 from ultralytics.engine.results import Results
 from ultralytics.utils.nms import non_max_suppression
+from hold_detection import SpeedWallHoldDetector
 
 parser = argparse.ArgumentParser(description="Run pose estimation on a video.")
 parser.add_argument(
@@ -21,10 +22,21 @@ parser.add_argument(
     default="pose_runs.csv",
     help="CSV file where total video processing times are appended.",
 )
+parser.add_argument(
+    "--hold-reference",
+    default="Screenshot 2026-09-29 162720.png",
+    help="Reference image of the empty speed wall layout.",
+)
+parser.add_argument(
+    "--hold-lane",
+    choices=["auto", "left", "right", "all"],
+    default="auto",
+    help="Speed-wall lane to render; auto selects the lane nearest the climber.",
+)
 args = parser.parse_args()
 
 # --- CONFIGURATION ---
-VIDEO_PATH = "dino_miss.mp4"
+VIDEO_PATH = "speed_climb.mp4"
 OUTPUT_VIDEO_PATH = "dino_miss_pose.mp4"
 MODEL_PATH = "yolo11m-pose.onnx"
 IMAGE_SIZE = 960
@@ -53,6 +65,8 @@ pose_session = ort.InferenceSession(
 )
 pose_input_name = pose_session.get_inputs()[0].name
 print(f"Using inference provider: {pose_session.get_providers()[0]}")
+hold_detector = SpeedWallHoldDetector(args.hold_reference, args.hold_lane)
+print(f"Loaded {len(hold_detector.reference_holds)} reference holds")
 
 tracking_box = None
 tracking_velocity = np.zeros(4, dtype=np.float32)
@@ -141,7 +155,7 @@ def process_frame(frame, frame_index):
         last_full_detection_frame = frame_index
         if detections is None:
             tracking_box = None
-            return frame.copy()
+            return hold_detector.annotate(frame)
         current_box = detections[0, :4].cpu().numpy()
     else:
         predicted_box = tracking_box + tracking_velocity
@@ -171,7 +185,14 @@ def process_frame(frame, frame_index):
     if tracking_box is not None:
         tracking_velocity = current_box - tracking_box
     tracking_box = current_box
-    return render_pose(frame, detections)
+    climber_center_x = float((current_box[0] + current_box[2]) / 2)
+    pose_keypoints = detections[0, 6:].reshape(17, 3).cpu().numpy()
+    holds_annotated = hold_detector.annotate(
+        frame,
+        climber_center_x,
+        pose_keypoints,
+    )
+    return render_pose(holds_annotated, detections)
 
 # --- VIDEO LOOP ---
 cap = cv2.VideoCapture(VIDEO_PATH)
