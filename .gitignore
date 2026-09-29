@@ -1,2 +1,5 @@
-dino_miss.mp4
+*.mp4
 .vscode/settings.json
+yolo11m-pose.onnx
+yolo11m-pose.pt
+yolo11n-pose.pt
