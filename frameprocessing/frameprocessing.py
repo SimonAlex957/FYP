@@ -18,13 +18,13 @@ parser.add_argument(
 )
 parser.add_argument(
     "--timing-csv",
-    default="pose_timing.csv",
-    help="CSV file where per-frame timings are appended.",
+    default="pose_runs.csv",
+    help="CSV file where total video processing times are appended.",
 )
 args = parser.parse_args()
 
 # --- CONFIGURATION ---
-VIDEO_PATH = "speed_climb.mp4"
+VIDEO_PATH = "dino_miss.mp4"
 OUTPUT_VIDEO_PATH = "dino_miss_pose.mp4"
 MODEL_PATH = "yolo11m-pose.onnx"
 IMAGE_SIZE = 960
@@ -189,9 +189,9 @@ timing_writer = csv.DictWriter(
     timing_file,
     fieldnames=[
         "run_id",
-        "frame_index",
-        "video_timestamp_seconds",
-        "processing_time_ms",
+        "total_processing_time_seconds",
+        "total_processing_time_minutes",
+        "frames_processed",
         "inference_provider",
         "note",
         "input_video",
@@ -212,6 +212,7 @@ if not writer.isOpened():
     timing_file.close()
     raise RuntimeError(f"Could not open output video: {OUTPUT_VIDEO_PATH}")
 
+run_start_time = perf_counter()
 try:
     frame_index = 0
     while cap.isOpened():
@@ -219,21 +220,7 @@ try:
         if not ret:
             break
 
-        start_time = perf_counter()
         annotated = process_frame(frame, frame_index)
-        processing_time_ms = (perf_counter() - start_time) * 1000
-        timing_writer.writerow(
-            {
-                "run_id": run_id,
-                "frame_index": frame_index,
-                "video_timestamp_seconds": frame_index / fps,
-                "processing_time_ms": round(processing_time_ms, 3),
-                "inference_provider": pose_session.get_providers()[0],
-                "note": args.note,
-                "input_video": VIDEO_PATH,
-                "output_video": OUTPUT_VIDEO_PATH,
-            }
-        )
         writer.write(annotated)
         cv2.imshow("Pose Estimation", annotated)
         frame_index += 1
@@ -243,7 +230,22 @@ try:
 finally:
     cap.release()
     writer.release()
-    timing_file.close()
     cv2.destroyAllWindows()
 
+total_processing_time_seconds = perf_counter() - run_start_time
+timing_writer.writerow(
+    {
+        "run_id": run_id,
+        "total_processing_time_seconds": round(total_processing_time_seconds, 3),
+        "total_processing_time_minutes": round(total_processing_time_seconds / 60, 3),
+        "frames_processed": frame_index,
+        "inference_provider": pose_session.get_providers()[0],
+        "note": args.note,
+        "input_video": VIDEO_PATH,
+        "output_video": OUTPUT_VIDEO_PATH,
+    }
+)
+timing_file.flush()
+timing_file.close()
 print(f"Saved pose video to {OUTPUT_VIDEO_PATH}")
+print(f"Total processing time: {total_processing_time_seconds:.3f} seconds")

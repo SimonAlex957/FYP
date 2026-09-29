@@ -1,0 +1,5 @@
+run_id,total_processing_time_seconds,total_processing_time_minutes,frames_processed,inference_provider,note,input_video,output_video
+2026-09-29T11:50:26.762023+00:00,194.062,3.234,353,DmlExecutionProvider,total_video_timing_test,speed_climb.mp4,dino_miss_pose.mp4
+run_id,total_processing_time_seconds,total_processing_time_minutes,frames_processed,inference_provider,note,input_video,output_video
+2026-09-29T11:52:15.308175+00:00,196.491,3.275,353,DmlExecutionProvider,first test,speed_climb.mp4,dino_miss_pose.mp4
+2026-09-29T11:59:15.232875+00:00,32.866,0.548,95,DmlExecutionProvider,do the headers get applied agian?,dino_miss.mp4,dino_miss_pose.mp4
