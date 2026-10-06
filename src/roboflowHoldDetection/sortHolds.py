@@ -12,6 +12,7 @@ IMAGE_PATH = PROJECT_ROOT / "inputs" / "speed_climb_bad_angle.jpg"
 OUTPUT_PATH = PROJECT_ROOT / "roboflowHoldDetection" / "speed_wall_hand_holds.json"
 RED_RATIO_THRESHOLD = 0.15
 LARGE_AREA_MULTIPLIER = 1.5
+MAX_OUTPUT_HOLDS = 25
 
 
 def load_predictions(path: Path) -> list[dict]:
@@ -59,7 +60,9 @@ def sort_holds(
 
 	predictions = load_predictions(result_path)
 	if not predictions:
+		output_path.parent.mkdir(parents=True, exist_ok=True)
 		output_path.write_text("[]\n", encoding="utf-8")
+		render_holds(image, [], output_path.with_name(f"{output_path.stem}_overlay.png"))
 		return []
 
 	areas = np.array(
@@ -77,8 +80,38 @@ def sort_holds(
 		selected.append(output_prediction)
 
 	selected.sort(key=lambda item: item["area"], reverse=True)
+	selected = selected[:MAX_OUTPUT_HOLDS]
+	output_path.parent.mkdir(parents=True, exist_ok=True)
 	output_path.write_text(json.dumps(selected, indent=2) + "\n", encoding="utf-8")
+	render_holds(image, selected, output_path.with_name(f"{output_path.stem}_overlay.png"))
 	return selected
+
+
+def render_holds(image: np.ndarray, holds: list[dict], output_path: Path) -> None:
+	overlay = image.copy()
+	for index, hold in enumerate(holds, start=1):
+		center_x = float(hold["x"])
+		center_y = float(hold["y"])
+		box_width = float(hold["width"])
+		box_height = float(hold["height"])
+		left = int(round(center_x - box_width / 2))
+		top = int(round(center_y - box_height / 2))
+		right = int(round(center_x + box_width / 2))
+		bottom = int(round(center_y + box_height / 2))
+		cv2.rectangle(overlay, (left, top), (right, bottom), (0, 255, 0), 2)
+		cv2.putText(
+			overlay,
+			f"{index} A{hold['area']:.0f}",
+			(left, max(15, top - 6)),
+			cv2.FONT_HERSHEY_SIMPLEX,
+			0.45,
+			(0, 255, 0),
+			1,
+			cv2.LINE_AA,
+		)
+	output_path.parent.mkdir(parents=True, exist_ok=True)
+	if not cv2.imwrite(str(output_path), overlay):
+		raise OSError(f"Could not write overlay image: {output_path}")
 
 
 if __name__ == "__main__":
