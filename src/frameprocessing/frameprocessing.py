@@ -1,6 +1,7 @@
 import argparse
 import cv2
 import csv
+import os
 import numpy as np
 import onnxruntime as ort
 import torch
@@ -9,7 +10,7 @@ from pathlib import Path
 from time import perf_counter
 from ultralytics.engine.results import Results
 from ultralytics.utils.nms import non_max_suppression
-from hold_detection import SpeedWallHoldDetector
+from src.frameprocessing.hold_detection import RoboflowSpeedWallHoldDetector, SpeedWallHoldDetector
 
 parser = argparse.ArgumentParser(description="Run pose estimation on a video.")
 parser.add_argument(
@@ -65,8 +66,12 @@ pose_session = ort.InferenceSession(
 )
 pose_input_name = pose_session.get_inputs()[0].name
 print(f"Using inference provider: {pose_session.get_providers()[0]}")
-hold_detector = SpeedWallHoldDetector(args.hold_reference, args.hold_lane)
-print(f"Loaded {len(hold_detector.reference_holds)} reference holds")
+if os.environ.get("ROBOFLOW_API_KEY"):
+    hold_detector = RoboflowSpeedWallHoldDetector(args.hold_lane)
+    print("Using Roboflow workflow hold detection: 20 large + 11 small")
+else:
+    hold_detector = SpeedWallHoldDetector(args.hold_reference, args.hold_lane)
+    print(f"Using template hold detection: {len(hold_detector.reference_holds)} candidates")
 
 tracking_box = None
 tracking_velocity = np.zeros(4, dtype=np.float32)
