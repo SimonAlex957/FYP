@@ -10,7 +10,7 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).parents[2]
 DETECTIONS_PATH = PROJECT_ROOT / "roboflowHoldDetection" / "speed_wall_hand_holds.json"
 KNOWN_HOLDS_PATH = PROJECT_ROOT / "KnownHoldLocations" / "speed_wall_holds.csv"
-IMAGE_PATH = PROJECT_ROOT / "inputs" / "speed_climb_bad_angle.jpg"
+IMAGE_PATH = PROJECT_ROOT / "inputs" / "FarBack.jpg"
 OUTPUT_DIR = PROJECT_ROOT / "src" / "knownHandHoldOverlay"
 OVERLAY_PATH = OUTPUT_DIR / "known_hand_holds_overlay.png"
 REPORT_PATH = OUTPUT_DIR / "known_hand_holds_report.json"

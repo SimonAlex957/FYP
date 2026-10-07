@@ -16,7 +16,7 @@ client = InferenceHTTPClient(
 result = client.run_workflow(
     workspace_name="simon-alexander",
     workflow_id="climbing-holds-and-volumes-xyr5x-zrceg",
-    images={"image": "speed_climb_bad_angle.jpg"},
+    images={"image": "inputs/FarBack.jpg"},
     use_cache=False,
 )
 

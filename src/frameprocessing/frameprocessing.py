@@ -10,7 +10,7 @@ from pathlib import Path
 from time import perf_counter
 from ultralytics.engine.results import Results
 from ultralytics.utils.nms import non_max_suppression
-from src.frameprocessing.hold_detection import RoboflowSpeedWallHoldDetector, SpeedWallHoldDetector
+from frameprocessing.hold_detection import RoboflowSpeedWallHoldDetector, SpeedWallHoldDetector
 
 parser = argparse.ArgumentParser(description="Run pose estimation on a video.")
 parser.add_argument(

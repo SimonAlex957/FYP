@@ -8,7 +8,7 @@ import numpy as np
 
 PROJECT_ROOT = Path(__file__).parents[2]
 RESULT_PATH = PROJECT_ROOT / "roboflowHoldDetection" / "roboflow_hold_result.json"
-IMAGE_PATH = PROJECT_ROOT / "inputs" / "speed_climb_bad_angle.jpg"
+IMAGE_PATH = PROJECT_ROOT / "inputs" / "FarBack.jpg"
 OUTPUT_PATH = PROJECT_ROOT / "roboflowHoldDetection" / "speed_wall_hand_holds.json"
 RED_RATIO_THRESHOLD = 0.15
 LARGE_AREA_MULTIPLIER = 1.5
