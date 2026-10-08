@@ -10,9 +10,25 @@ from pathlib import Path
 from time import perf_counter
 from ultralytics.engine.results import Results
 from ultralytics.utils.nms import non_max_suppression
-from frameprocessing.hold_detection import RoboflowSpeedWallHoldDetector, SpeedWallHoldDetector
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SRC_DIR = PROJECT_ROOT / "src"
+if str(SRC_DIR) not in os.sys.path:
+    os.sys.path.insert(0, str(SRC_DIR))
+
+if __package__:
+    from frameprocessing.hold_detection import RoboflowSpeedWallHoldDetector
+else:
+    from hold_detection import RoboflowSpeedWallHoldDetector
 
 parser = argparse.ArgumentParser(description="Run pose estimation on a video.")
+parser.add_argument(
+    "video_path",
+    nargs="?",
+    type=Path,
+    default=PROJECT_ROOT / "inputs" / "speed_climb.mp4",
+    help="Input video path.",
+)
 parser.add_argument(
     "--note",
     default="",
@@ -20,12 +36,12 @@ parser.add_argument(
 )
 parser.add_argument(
     "--timing-csv",
-    default="pose_runs.csv",
+    default=str(PROJECT_ROOT / "outputs" / "poseEstimation" / "pose_runs.csv"),
     help="CSV file where total video processing times are appended.",
 )
 parser.add_argument(
     "--hold-reference",
-    default="Screenshot 2026-09-29 162720.png",
+    default=str(PROJECT_ROOT / "inputs" / "Screenshot 2026-09-29 162720.png"),
     help="Reference image of the empty speed wall layout.",
 )
 parser.add_argument(
@@ -37,9 +53,9 @@ parser.add_argument(
 args = parser.parse_args()
 
 # --- CONFIGURATION ---
-VIDEO_PATH = "speed_climb.mp4"
-OUTPUT_VIDEO_PATH = "dino_miss_pose.mp4"
-MODEL_PATH = "yolo11m-pose.onnx"
+VIDEO_PATH = str(args.video_path)
+OUTPUT_VIDEO_PATH = str(PROJECT_ROOT / "outputs" / "poseEstimation" / "dino_miss_pose.mp4")
+MODEL_PATH = str(PROJECT_ROOT / "yolo11m-pose.onnx")
 IMAGE_SIZE = 960
 CONFIDENCE = 0.2
 REDETECT_INTERVAL = 10
@@ -66,12 +82,12 @@ pose_session = ort.InferenceSession(
 )
 pose_input_name = pose_session.get_inputs()[0].name
 print(f"Using inference provider: {pose_session.get_providers()[0]}")
-if os.environ.get("ROBOFLOW_API_KEY"):
-    hold_detector = RoboflowSpeedWallHoldDetector(args.hold_lane)
-    print("Using Roboflow workflow hold detection: 20 large + 11 small")
-else:
-    hold_detector = SpeedWallHoldDetector(args.hold_reference, args.hold_lane)
-    print(f"Using template hold detection: {len(hold_detector.reference_holds)} candidates")
+if not os.environ.get("ROBOFLOW_API_KEY"):
+    raise RuntimeError(
+        "ROBOFLOW_API_KEY is not set; frame processing requires the Roboflow hold detector"
+    )
+hold_detector = RoboflowSpeedWallHoldDetector(args.hold_lane)
+print("Using Roboflow workflow hold detection: 20 large + 11 small")
 
 tracking_box = None
 tracking_velocity = np.zeros(4, dtype=np.float32)

@@ -1,3 +1,4 @@
+import argparse
 import csv
 import itertools
 import json
@@ -28,11 +29,15 @@ REPORT_PATH = FILTERED_OUTPUT_DIR / "known_hand_holds_report.json"
 MATCH_DISTANCE = 35.0
 
 
-def load_known_hand_holds(path: Path) -> tuple[list[dict], np.ndarray]:
+def load_known_holds(path: Path, hold_type: str) -> tuple[list[dict], np.ndarray]:
     rows = list(csv.DictReader(path.open(encoding="utf-8")))
-    hand_rows = [row for row in rows if row["type"].lower() == "hand"]
-    points = np.float32([[float(row["x_m"]), float(row["y_m"])] for row in hand_rows])
-    return hand_rows, points
+    selected_rows = [row for row in rows if row["type"].lower() == hold_type.lower()]
+    points = np.float32([[float(row["x_m"]), float(row["y_m"])] for row in selected_rows])
+    return selected_rows, points
+
+
+def load_known_hand_holds(path: Path) -> tuple[list[dict], np.ndarray]:
+    return load_known_holds(path, "hand")
 
 
 def load_detections(path: Path) -> list[dict]:
@@ -148,6 +153,8 @@ def render_overlay(
     image: np.ndarray,
     known_rows: list[dict],
     projected: np.ndarray,
+    foot_rows: list[dict],
+    projected_feet: np.ndarray,
     detections: list[dict],
     matched_known: list[int],
     matched_detections: list[int],
@@ -174,6 +181,21 @@ def render_overlay(
             cv2.LINE_AA,
         )
 
+    for row, point in zip(foot_rows, projected_feet):
+        center = (int(round(point[0])), int(round(point[1])))
+        color = (0, 165, 255)
+        cv2.circle(image, center, 10, color, 2)
+        cv2.putText(
+            image,
+            f"F {row['panel']}-{row['hold']}",
+            (center[0] + 8, center[1] - 5),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.38,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+
 
 def create_known_hand_hold_overlay(
     image_path: Path,
@@ -187,14 +209,25 @@ def create_known_hand_hold_overlay(
     if image is None:
         raise FileNotFoundError(f"Could not open image: {image_path}")
 
-    known_rows, known_points = load_known_hand_holds(known_holds_path)
+    known_rows, known_points = load_known_holds(known_holds_path, "hand")
+    foot_rows, foot_points = load_known_holds(known_holds_path, "foot")
     detections = load_detections(detections_path)
     homography, projected, matched_known, matched_detections, distances = fit_homography(
         known_points, detections
     )
 
     overlay = image.copy()
-    render_overlay(overlay, known_rows, projected, detections, matched_known, matched_detections)
+    projected_feet = project(foot_points, homography)
+    render_overlay(
+        overlay,
+        known_rows,
+        projected,
+        foot_rows,
+        projected_feet,
+        detections,
+        matched_known,
+        matched_detections,
+    )
     overlay_path.parent.mkdir(parents=True, exist_ok=True)
     if not cv2.imwrite(str(overlay_path), overlay):
         raise OSError(f"Could not write overlay: {overlay_path}")
@@ -215,6 +248,14 @@ def create_known_hand_hold_overlay(
         ],
         "mean_match_distance": float(np.mean(distances)) if distances else None,
         "homography": homography.tolist(),
+        "projected_foot_holds": [
+            {
+                **row,
+                "projected_x": float(point[0]),
+                "projected_y": float(point[1]),
+            }
+            for row, point in zip(foot_rows, projected_feet)
+        ],
     }
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
@@ -244,7 +285,16 @@ def run_hold_pipeline(image_path: Path = IMAGE_PATH) -> dict:
 
 
 def main() -> None:
-    run_hold_pipeline(IMAGE_PATH)
+    parser = argparse.ArgumentParser(description="Detect and overlay climbing-wall hand holds.")
+    parser.add_argument(
+        "image_path",
+        nargs="?",
+        type=Path,
+        default=IMAGE_PATH,
+        help=f"Input image path (default: {IMAGE_PATH})",
+    )
+    args = parser.parse_args()
+    run_hold_pipeline(args.image_path)
 
 
 if __name__ == "__main__":
