@@ -6,3 +6,5 @@ yolo11n-pose.pt
 roboflowHoldDetection/speed_wall_hand_holds_overlay.png
 *.png
 *.avi
+*.pt
+SpeedClimbingHandHolds

@@ -1,14 +1,14 @@
 from ultralytics import YOLO
 
  # load an official model
-model = YOLO("yolo26m-pose.pt") 
+model = YOLO("yolo26x-pose.pt") 
 
 # Pose estimation
 # results = model.predict("videos/warehouse-pose-2.mp4", save=True, show=True)
 
 # Pose estimation + object tracking
 results = model.track(
-	"inputs/dino_miss.mp4",
+	"inputs/NewPB!!!.mp4",
 	save=True,
 	show=True,
 	persist=True,

@@ -56,39 +56,8 @@ class RoboflowSpeedWallHoldDetector:
             if str(prediction.get("class_id", prediction.get("class"))) == "0"
         ]
 
-    def _select_route_holds(self, predictions: list[dict]) -> list[SpeedHold]:
-        ranked = sorted(
-            predictions,
-            key=lambda prediction: (
-                float(prediction.get("width", 0)) * float(prediction.get("height", 0)),
-                float(prediction.get("confidence", 0)),
-            ),
-            reverse=True,
-        )
-        selected = ranked[: self.large_count + self.small_count]
-        holds = [
-            SpeedHold(
-                center=(float(prediction["x"]), float(prediction["y"])),
-                kind="large" if index < self.large_count else "small",
-                area=float(prediction.get("width", 0)) * float(prediction.get("height", 0)),
-            )
-            for index, prediction in enumerate(selected)
-        ]
-        return holds
 
-    def _select_lane(self, centers: np.ndarray, focus_x: float | None) -> list[int]:
-        if self.lane in {"all", "auto"} and (self.lane == "all" or focus_x is None):
-            return list(range(len(centers)))
-        median_x = float(np.median(centers[:, 0]))
-        left = [index for index, x in enumerate(centers[:, 0]) if x < median_x]
-        right = [index for index, x in enumerate(centers[:, 0]) if x >= median_x]
-        if self.lane == "left":
-            return left
-        if self.lane == "right":
-            return right
-        if not left or not right:
-            return list(range(len(centers)))
-        return left if abs(focus_x - np.mean(centers[left, 0])) < abs(focus_x - np.mean(centers[right, 0])) else right
+
 
     def annotate(
         self,
