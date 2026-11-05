@@ -1,24 +1,236 @@
+"""Overlay YOLO26 pose tracking on a stationary-camera climbing video."""
+
+import argparse
+import csv
+import json
+from pathlib import Path
+
+import cv2
+import numpy as np
 from ultralytics import YOLO
 
- # load an official model
-model = YOLO("yolo26x-pose.pt") 
 
-# Pose estimation
-# results = model.predict("videos/warehouse-pose-2.mp4", save=True, show=True)
-
-# Pose estimation + object tracking
-results = model.track(
-	"inputs/NewPB!!!.mp4",
-	save=True,
-	show=True,
-	persist=True,
-	project="outputs",
-	name="poseEstimation",
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_MODEL = PROJECT_ROOT / "yolo26x-pose.pt"
+DEFAULT_INPUT = PROJECT_ROOT / "inputs" / "NewPB!!!.mp4"
+DEFAULT_OUTPUT = PROJECT_ROOT / "outputs" / "poseEstimation" / "climber_pose.mp4"
+DEFAULT_HOLDS_REPORT = (
+    PROJECT_ROOT
+    / "outputs"
+    / "RoboflowHoldDetection"
+    / "Filtered"
+    / "known_hand_holds_report.json"
 )
+DEFAULT_KNOWN_HOLDS = PROJECT_ROOT / "KnownHoldLocations" / "speed_wall_holds.csv"
 
 
-# # Access the results
-# for result in results:
-#     xy = result.keypoints.xy  # x and y coordinates
-#     xyn = result.keypoints.xyn  # normalized
-#     kpts = result.keypoints.data  # x, y, visibility (if available)
+def _load_holds(report_path: Path, known_holds_path: Path) -> list[dict]:
+    """Load the same projected hand and foot holds used by the static overlay."""
+    result = json.loads(report_path.read_text(encoding="utf-8"))
+    if not isinstance(result, dict):
+        raise ValueError(f"Hold report must be a JSON object: {report_path}")
+
+    known_rows = list(csv.DictReader(known_holds_path.open(encoding="utf-8")))
+    hand_rows = [row for row in known_rows if row["type"].lower() == "hand"]
+    if len(hand_rows) != 20:
+        raise ValueError(f"Expected 20 known hand holds: {known_holds_path}")
+
+    homography = np.asarray(result.get("homography"), dtype=np.float32)
+    if homography.shape != (3, 3):
+        raise ValueError(f"Hold report has no valid homography: {report_path}")
+    known_points = np.float32(
+        [[float(row["x_m"]), float(row["y_m"])] for row in hand_rows]
+    )
+    projected_hands = cv2.perspectiveTransform(
+        known_points.reshape(-1, 1, 2), homography
+    ).reshape(-1, 2)
+    missed_indices = {
+        int(hold["index"]) for hold in result.get("missed_known_holds", [])
+    }
+    holds = [
+        {
+            "kind": "hand",
+            "label": f"{index} {row['panel']}-{row['hold']}",
+            "projected_x": point[0],
+            "projected_y": point[1],
+            "color": (0, 0, 255) if index in missed_indices else (0, 220, 0),
+        }
+        for index, (row, point) in enumerate(zip(hand_rows, projected_hands), start=1)
+    ]
+    for hold in result.get("projected_foot_holds", []):
+        holds.append(
+            {
+                **hold,
+                "kind": "foot",
+                "label": f"F {hold['panel']}-{hold['hold']}",
+                "color": (0, 165, 255),
+            }
+        )
+    if not holds:
+        raise ValueError(f"Hold report contains no projected holds: {report_path}")
+    return holds
+
+
+def _overlay_holds(frame: np.ndarray, holds: list[dict]) -> np.ndarray:
+    """Draw stationary hold detections onto a video frame."""
+    output = frame.copy()
+    for index, hold in enumerate(holds, start=1):
+        center = (
+            int(round(float(hold["projected_x"]))),
+            int(round(float(hold["projected_y"]))),
+        )
+        color = hold["color"]
+        cv2.circle(output, center, 10, color, 2)
+        cv2.putText(
+            output,
+            hold["label"],
+            (center[0] + 10, center[1] - 8),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            color,
+            1,
+            cv2.LINE_AA,
+        )
+    return output
+
+
+def _preserve_frame_size(frame: np.ndarray, height: int, width: int) -> np.ndarray:
+    """Fit an annotated frame to the source dimensions without cropping."""
+    source_height, source_width = frame.shape[:2]
+    if (source_height, source_width) == (height, width):
+        return frame
+
+    scale = min(width / source_width, height / source_height)
+    resized_width = max(1, int(round(source_width * scale)))
+    resized_height = max(1, int(round(source_height * scale)))
+    resized = cv2.resize(frame, (resized_width, resized_height))
+    canvas = np.zeros((height, width, 3), dtype=frame.dtype)
+    left = (width - resized_width) // 2
+    top = (height - resized_height) // 2
+    canvas[top : top + resized_height, left : left + resized_width] = resized
+    return canvas
+
+
+def overlay_pose(
+    input_path: Path,
+    output_path: Path,
+    model_path: Path = DEFAULT_MODEL,
+    confidence: float = 0.25,
+    show_preview: bool = True,
+    holds_path: Path = DEFAULT_HOLDS_REPORT,
+    known_holds_path: Path = DEFAULT_KNOWN_HOLDS,
+) -> int:
+    """Track climbers and write a video with their pose skeletons overlaid.
+
+    When enabled, the annotated frame currently being processed is shown in an
+    OpenCV window. Press ``q`` or ``Esc`` to stop processing early.
+    """
+    model = YOLO(str(model_path))
+    capture = cv2.VideoCapture(str(input_path))
+    if not capture.isOpened():
+        raise FileNotFoundError(f"Could not open input video: {input_path}")
+
+    fps = capture.get(cv2.CAP_PROP_FPS)
+    if fps <= 0:
+        capture.release()
+        raise ValueError(f"Could not read video metadata: {input_path}")
+
+    ok, first_frame = capture.read()
+    if not ok:
+        capture.release()
+        raise ValueError(f"Could not read the first frame from input video: {input_path}")
+    height, width = first_frame.shape[:2]
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    writer = cv2.VideoWriter(
+        str(output_path),
+        cv2.VideoWriter_fourcc(*"mp4v"),
+        fps,
+        (width, height),
+    )
+    if not writer.isOpened():
+        capture.release()
+        raise OSError(f"Could not create output video: {output_path}")
+
+    frame_count = 0
+    try:
+        holds = _load_holds(holds_path, known_holds_path)
+        frame = first_frame
+        while True:
+            if frame is None:
+                break
+
+            frame_height, frame_width = frame.shape[:2]
+            if (frame_height, frame_width) != (height, width):
+                raise ValueError(
+                    "Input video frame dimensions changed during processing: "
+                    f"expected {width}x{height}, got {frame_width}x{frame_height}"
+                )
+
+            results = model.track(
+                frame,
+                persist=True,
+                classes=[0],
+                conf=confidence,
+                verbose=False,
+            )
+            annotated = results[0].plot(
+                boxes=False,
+                labels=True,
+                conf=True,
+                line_width=2,
+            )
+            annotated = _preserve_frame_size(annotated, height, width)
+            annotated = _overlay_holds(annotated, holds)
+            writer.write(annotated)
+            frame_count += 1
+            if show_preview:
+                cv2.imshow("Pose estimation", annotated)
+                if cv2.waitKey(1) & 0xFF in (ord("q"), 27):
+                    break
+            ok, frame = capture.read()
+            if not ok:
+                frame = None
+    finally:
+        writer.release()
+        capture.release()
+        if show_preview:
+            cv2.destroyWindow("Pose estimation")
+
+    return frame_count
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Overlay YOLO26x pose tracking on a stationary climbing video."
+    )
+    parser.add_argument("input_path", nargs="?", type=Path, default=DEFAULT_INPUT)
+    parser.add_argument("output_path", nargs="?", type=Path, default=DEFAULT_OUTPUT)
+    parser.add_argument("--model", type=Path, default=DEFAULT_MODEL)
+    parser.add_argument("--confidence", type=float, default=0.25)
+    parser.add_argument("--holds", type=Path, default=DEFAULT_HOLDS_REPORT)
+    parser.add_argument("--known-holds", type=Path, default=DEFAULT_KNOWN_HOLDS)
+    parser.add_argument(
+        "--no-preview",
+        action="store_true",
+        help="Disable the live window showing the annotated frame being processed.",
+    )
+    args = parser.parse_args()
+
+    if not 0 < args.confidence <= 1:
+        raise ValueError("--confidence must be greater than 0 and at most 1")
+
+    frame_count = overlay_pose(
+        args.input_path,
+        args.output_path,
+        args.model,
+        args.confidence,
+        not args.no_preview,
+        args.holds,
+        args.known_holds,
+    )
+    print(f"Wrote {frame_count} annotated frames to {args.output_path}")
+
+
+if __name__ == "__main__":
+    main()

@@ -2,9 +2,11 @@ import json
 import os
 from pathlib import Path
 
+import numpy as np
 from inference_sdk import InferenceConfiguration, InferenceHTTPClient
 
-def run_hold_workflow(image_path: Path, output_path: Path) -> dict:
+
+def run_hold_workflow(image: Path | np.ndarray, output_path: Path) -> dict | list[dict]:
     """Run the Roboflow workflow and save its raw result."""
     api_key = os.environ.get("ROBOFLOW_API_KEY")
     if not api_key:
@@ -18,7 +20,7 @@ def run_hold_workflow(image_path: Path, output_path: Path) -> dict:
     result = client.run_workflow(
         workspace_name="simon-alexander",
         workflow_id="climbing-holds-and-volumes-xyr5x-zrceg",
-        images={"image": str(image_path)},
+        images={"image": str(image) if isinstance(image, Path) else image},
         use_cache=False,
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
